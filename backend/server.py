@@ -329,7 +329,7 @@ async def forgot(body: ForgotIn):
 @api.post("/auth/reset-password")
 async def reset(body: ResetIn):
     doc = await db.password_resets.find_one({"token": body.token, "used": False})
-    if not doc or doc["expires_at"] < datetime.now(timezone.utc):
+    if not doc or _aware(doc["expires_at"]) < datetime.now(timezone.utc):
         raise HTTPException(400, "Invalid or expired token")
     await db.users.update_one(
         {"_id": doc["user_id"]}, {"$set": {"password_hash": hash_password(body.password)}}
