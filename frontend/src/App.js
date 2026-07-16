@@ -10,6 +10,7 @@ import Signup from "@/pages/Signup";
 import ForgotPassword from "@/pages/ForgotPassword";
 import ResetPassword from "@/pages/ResetPassword";
 import VerifyEmail from "@/pages/VerifyEmail";
+import VerifyEmailOtp from "@/pages/VerifyEmailOtp";
 import Dashboard from "@/pages/Dashboard";
 import Verify from "@/pages/Verify";
 import Offers from "@/pages/Offers";
@@ -33,6 +34,7 @@ export default function App() {
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password/:token" element={<ResetPassword />} />
           <Route path="/verify-email/:token" element={<VerifyEmail />} />
+          <Route path="/verify-email" element={<VerifyEmailOtp />} />
           <Route path="/offers" element={<Offers />} />
           <Route path="/offers/:id" element={<OfferDetail />} />
           <Route path="/outlets" element={<Outlets />} />

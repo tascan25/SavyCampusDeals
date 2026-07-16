@@ -2,7 +2,12 @@ import React from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 
-export default function ProtectedRoute({ children }) {
+/**
+ * Wraps routes that require BOTH auth AND email verification.
+ * - Not authed → /login
+ * - Authed but email not verified → /verify-email (OTP page)
+ */
+export default function ProtectedRoute({ children, requireEmailVerified = true }) {
   const { user, ready } = useAuth();
   const location = useLocation();
   if (!ready) {
@@ -13,5 +18,8 @@ export default function ProtectedRoute({ children }) {
     );
   }
   if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
+  if (requireEmailVerified && user.role === "student" && !user.email_verified) {
+    return <Navigate to="/verify-email" state={{ email: user.email }} replace />;
+  }
   return children;
 }

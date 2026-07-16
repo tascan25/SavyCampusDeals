@@ -7,7 +7,7 @@ import api from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import OfferCard from "@/components/OfferCard";
 
-const BRANDS = ["Nike","Apple","Spotify","Notion","Zomato","BookMyShow","Ray-Ban","cult.fit","Coursera","YouTube","Blue Tokai","Zudio"];
+const BRANDS = ["Spotify","Apple","YouTube","GitHub","Adobe","Figma","Notion","Canva","Swiggy","Zomato","Coursera","Microsoft","Amazon Prime"];
 
 const STEPS = [
   { t: "Sign up in seconds", d: "Register with your student email and set up your profile.", i: Users },
@@ -48,57 +48,158 @@ export default function Landing() {
       <div className="aurora bg-emerald-500/10" style={{ width: 400, height: 400, top: 500, left: "40%" }} />
 
       {/* HERO */}
-      <section className="relative pt-32 pb-24 md:pt-40 md:pb-32">
-        <div className="max-w-7xl mx-auto px-6 relative z-10">
+      <section className="relative pt-28 pb-20 md:pt-36 md:pb-28 overflow-hidden">
+        <div className="max-w-7xl mx-auto px-6 relative z-10 grid lg:grid-cols-12 gap-12 items-center">
+          {/* Left column */}
           <motion.div
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7 }}
-            className="max-w-3xl"
+            className="lg:col-span-7"
           >
-            <div className="inline-flex items-center gap-2 rounded-full glass px-3 py-1.5 text-xs text-indigo-200 mb-6" data-testid="hero-badge">
-              <Sparkles size={12} className="text-emerald-300"/> India's student perks club
-            </div>
-            <h1 className="font-display text-5xl sm:text-6xl lg:text-7xl font-extrabold leading-[1.02] tracking-tighter">
-              Your student ID is now <span className="bg-gradient-to-r from-indigo-400 via-purple-400 to-blue-400 bg-clip-text text-transparent">a golden ticket.</span>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.2 }}
+              className="inline-flex items-center gap-2 rounded-full glass-heavy px-3 py-1.5 text-xs text-indigo-200 mb-6"
+              data-testid="hero-badge"
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"/>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"/>
+              </span>
+              LIVE — India's student perks club
+            </motion.div>
+
+            <h1 className="font-display text-[3rem] sm:text-6xl lg:text-[5.5rem] font-extrabold leading-[0.95] tracking-tighter">
+              Your student ID is
+              <br />
+              <span className="relative inline-block">
+                <span className="bg-gradient-to-r from-indigo-300 via-purple-300 to-pink-300 bg-clip-text text-transparent">a cheat code</span>
+                <motion.span
+                  initial={{ scaleX: 0 }} animate={{ scaleX: 1 }} transition={{ delay: 0.8, duration: 0.6, ease: "easeOut" }}
+                  className="absolute -bottom-2 left-0 right-0 h-1 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 origin-left"
+                />
+              </span>
+              <br />
+              for the good life.
             </h1>
-            <p className="mt-6 text-lg text-zinc-400 max-w-xl">
-              Verified college students unlock exclusive deals on food, fashion, tech, fitness and edtech.
-              Get your digital pass in minutes.
+
+            <p className="mt-8 text-lg md:text-xl text-zinc-400 max-w-xl leading-relaxed">
+              Verified college students unlock <span className="text-white font-semibold">real, exclusive deals</span> from Spotify, Apple, Swiggy, Zomato, GitHub, Adobe & 500+ more. Get your digital pass in <span className="text-emerald-300 font-semibold">under 60 seconds</span>.
             </p>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <Link to="/signup" data-testid="hero-cta-primary" className="group inline-flex items-center gap-2 rounded-full bg-white text-black font-semibold px-6 py-3 hover:scale-[1.03] active:scale-[0.97] transition-transform">
-                Get verified — it's free
+
+            <div className="mt-9 flex flex-wrap gap-3">
+              <Link to="/signup" data-testid="hero-cta-primary" className="group inline-flex items-center gap-2 rounded-full bg-white text-black font-semibold px-7 py-3.5 hover:scale-[1.03] active:scale-[0.97] transition-transform shadow-[0_10px_40px_-10px_rgba(255,255,255,0.35)]">
+                Get your pass — free
                 <ArrowRight size={16} className="transition-transform group-hover:translate-x-0.5"/>
               </Link>
-              <Link to="/offers" data-testid="hero-cta-secondary" className="inline-flex items-center gap-2 rounded-full glass px-6 py-3 hover:bg-white/10 transition-colors">
+              <Link to="/offers" data-testid="hero-cta-secondary" className="inline-flex items-center gap-2 rounded-full glass-heavy px-7 py-3.5 hover:bg-white/10 transition-colors">
                 Browse offers
               </Link>
             </div>
-            <div className="mt-10 flex items-center gap-6 text-sm text-zinc-500">
-              <div className="flex items-center gap-2"><BadgeCheck size={16} className="text-emerald-400"/> 12,000+ verified students</div>
-              <div className="hidden sm:flex items-center gap-2"><Star size={16} className="text-amber-400"/> 4.9 rating</div>
+
+            {/* Live stats strip */}
+            <div className="mt-10 grid grid-cols-3 gap-3 max-w-lg">
+              {[
+                { n: "12,847", l: "Verified students", g: "from-indigo-400 to-purple-400" },
+                { n: "₹1.2Cr", l: "Saved this year", g: "from-emerald-400 to-teal-400" },
+                { n: "500+", l: "Partner brands", g: "from-pink-400 to-amber-400" },
+              ].map((s, i) => (
+                <motion.div
+                  key={s.l}
+                  initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 + i * 0.1 }}
+                  className="glass rounded-2xl p-3"
+                >
+                  <div className={`font-display font-extrabold text-xl md:text-2xl bg-gradient-to-r ${s.g} bg-clip-text text-transparent`}>{s.n}</div>
+                  <div className="text-[10px] uppercase tracking-widest text-zinc-500 mt-1">{s.l}</div>
+                </motion.div>
+              ))}
             </div>
           </motion.div>
 
-          {/* floating showcase */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9, y: 40 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.2 }}
-            className="mt-16 grid md:grid-cols-3 gap-4 max-w-4xl"
-          >
-            {["Nike","Spotify","Apple"].map((b, i) => (
-              <div key={b} className="glass rounded-2xl p-5 flex items-center justify-between hover:border-white/20 transition-colors">
-                <div>
-                  <div className="text-[10px] uppercase tracking-widest text-zinc-500">Student deal</div>
-                  <div className="font-display font-bold text-lg mt-1">{b}</div>
-                  <div className="text-sm text-indigo-300 mt-1">{["₹500 OFF","3 mo free","25% OFF"][i]}</div>
+          {/* Right column — floating pass showcase */}
+          <div className="lg:col-span-5 relative min-h-[520px] hidden lg:block">
+            {/* Ambient glow */}
+            <div className="absolute -inset-12 rounded-full bg-indigo-600/20 blur-3xl"/>
+
+            {/* Main student card */}
+            <motion.div
+              initial={{ opacity: 0, y: 40, rotate: -6 }}
+              animate={{ opacity: 1, y: 0, rotate: -6 }}
+              transition={{ duration: 0.8, delay: 0.3, ease: [0.16, 1, 0.3, 1] }}
+              className="absolute top-8 right-4 w-[400px]"
+              style={{ transform: "perspective(1200px) rotateY(-14deg) rotateX(6deg) rotate(-6deg)" }}
+            >
+              <div className="holo holo-shine rounded-3xl p-6 aspect-[1.586/1] border border-white/10 shadow-[0_40px_100px_-20px_rgba(79,70,229,0.55)] overflow-hidden relative">
+                <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" }}/>
+                <div className="relative flex items-start justify-between">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-[0.3em] text-white/60">SavyCampusDeals</div>
+                    <div className="font-display text-2xl font-extrabold mt-1 flex items-center gap-2">Student Pass <Sparkles size={16} className="text-emerald-300"/></div>
+                  </div>
+                  <div className="flex items-center gap-1.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-[11px] font-semibold px-2.5 py-1">
+                    <BadgeCheck size={14}/> Verified
+                  </div>
                 </div>
-                <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-white/10 to-white/5 grid place-items-center">
-                  <Sparkles size={20} className="text-white/70"/>
+                <div className="relative mt-6 flex items-end justify-between">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-[0.25em] text-white/50">Name</div>
+                    <div className="font-display text-lg font-bold">Aarav Sharma</div>
+                    <div className="text-[10px] uppercase tracking-[0.25em] text-white/50 mt-3">College</div>
+                    <div className="text-sm text-white/90">IIT Bombay</div>
+                  </div>
+                  <div className="rounded-xl bg-white p-1.5">
+                    <div className="h-20 w-20 grid grid-cols-8 grid-rows-8 gap-[1px]">
+                      {[...Array(64)].map((_, k) => <div key={k} className={`${(k * 7) % 3 === 0 ? "bg-black" : "bg-white"}`}/>)}
+                    </div>
+                  </div>
                 </div>
               </div>
-            ))}
-          </motion.div>
+            </motion.div>
+
+            {/* Floating brand chip #1 (Spotify) */}
+            <motion.div
+              initial={{ opacity: 0, y: -30, x: -30 }}
+              animate={{ opacity: 1, y: 0, x: 0 }}
+              transition={{ duration: 0.7, delay: 0.6 }}
+              className="absolute top-0 left-0 glass-heavy rounded-2xl p-3 pr-4 flex items-center gap-2.5 shadow-2xl"
+            >
+              <div className="h-9 w-9 rounded-lg bg-emerald-500 grid place-items-center">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="#000"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.5 17.3c-.2.3-.6.4-.9.2-2.5-1.5-5.6-1.9-9.4-1-.3.1-.6-.1-.7-.5s.1-.6.5-.7c4-.9 7.5-.5 10.2 1.2.4.2.5.6.3.8zm1.5-3c-.3.4-.7.5-1.1.3-2.8-1.7-7.1-2.2-10.5-1.2-.5.1-1-.2-1.1-.6s.2-1 .6-1.1c3.9-1.2 8.6-.7 11.9 1.4.3.2.4.7.2 1.2zm.1-3.1C15.7 9.5 9.6 9.4 6 10.4c-.6.2-1.2-.2-1.4-.7s.2-1.2.7-1.4c4.1-1.2 10.8-1 15 1.6.5.3.7 1 .4 1.5-.3.4-1 .6-1.5.3z"/></svg>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-zinc-500">Just claimed</div>
+                <div className="text-sm font-semibold">Spotify Premium <span className="text-emerald-300">₹59/mo</span></div>
+              </div>
+            </motion.div>
+
+            {/* Floating brand chip #2 (Swiggy) */}
+            <motion.div
+              initial={{ opacity: 0, y: 30, x: 30 }}
+              animate={{ opacity: 1, y: 0, x: 0 }}
+              transition={{ duration: 0.7, delay: 0.85 }}
+              className="absolute bottom-16 right-0 glass-heavy rounded-2xl p-3 pr-4 flex items-center gap-2.5 shadow-2xl"
+            >
+              <div className="h-9 w-9 rounded-lg bg-orange-500 grid place-items-center font-display font-extrabold text-white">S</div>
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-zinc-500">Trending</div>
+                <div className="text-sm font-semibold">Swiggy One Lite <span className="text-emerald-300">₹1 / 3 mo</span></div>
+              </div>
+            </motion.div>
+
+            {/* Floating brand chip #3 (GitHub) */}
+            <motion.div
+              initial={{ opacity: 0, y: 20, x: -40 }}
+              animate={{ opacity: 1, y: 0, x: 0 }}
+              transition={{ duration: 0.7, delay: 1.05 }}
+              className="absolute bottom-0 left-8 glass-heavy rounded-2xl p-3 pr-4 flex items-center gap-2.5 shadow-2xl"
+            >
+              <div className="h-9 w-9 rounded-lg bg-white grid place-items-center">
+                <svg viewBox="0 0 24 24" width="18" height="18"><path fill="#000" d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.5-1.4-1.4-1.8-1.4-1.8-1.1-.7 0-.7 0-.7 1.2.1 1.9 1.2 1.9 1.2 1.1 1.9 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-6 0-1.3.5-2.4 1.3-3.2-.1-.3-.6-1.6.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.7 1.6.2 2.9.1 3.2.8.8 1.3 1.9 1.3 3.2 0 4.6-2.8 5.6-5.5 5.9.5.4.9 1.1.9 2.3v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3"/></svg>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-widest text-zinc-500">Dev pack</div>
+                <div className="text-sm font-semibold">GitHub Student <span className="text-emerald-300">FREE</span></div>
+              </div>
+            </motion.div>
+          </div>
         </div>
       </section>
 

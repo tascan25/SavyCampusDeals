@@ -114,6 +114,14 @@ async def get_current_user(request: Request) -> dict:
     return user
 
 
+async def get_verified_user(request: Request) -> dict:
+    """Requires the user's email to be verified (or the user to be admin)."""
+    user = await get_current_user(request)
+    if user.get("role") != "admin" and not user.get("email_verified"):
+        raise HTTPException(403, "Please verify your email before continuing.")
+    return user
+
+
 def set_auth_cookie(response: Response, token: str):
     response.set_cookie(
         key="access_token",
@@ -206,12 +214,21 @@ class ProfileUpdateIn(BaseModel):
 
 
 class VerificationSubmitIn(BaseModel):
-    college_id_image: str  # base64 data URI
-    selfie_image: str
+    college_id_image: Optional[str] = ""  # base64 data URI (optional)
+    selfie_image: Optional[str] = ""      # base64 data URI (optional)
     college_name: str
     course: str
     year: str
-    student_id_number: str
+    student_id_number: Optional[str] = ""
+
+
+class OtpVerifyIn(BaseModel):
+    email: EmailStr
+    otp: str = Field(min_length=6, max_length=6)
+
+
+class OtpResendIn(BaseModel):
+    email: EmailStr
 
 
 # -----------------------------
@@ -249,23 +266,90 @@ async def register(body: RegisterIn, response: Response):
     result = await db.users.insert_one(user_doc)
     user_doc["_id"] = result.inserted_id
 
-    # send verification email (non-blocking failure)
-    link = f"{FRONTEND_URL}/verify-email/{verify_token}"
+    # Generate and send OTP (6-digit)
+    otp = f"{secrets.randbelow(1000000):06d}"
+    await db.otp_codes.insert_one({
+        "user_id": result.inserted_id,
+        "email": email,
+        "otp": otp,
+        "expires_at": now + timedelta(minutes=10),
+        "used": False,
+        "created_at": now,
+    })
     send_email(
         email,
-        "Welcome to SavyCampusDeals — Verify your email",
-        f"""<div style="font-family:Manrope,sans-serif;background:#050505;color:#fff;padding:32px;border-radius:16px;max-width:560px;margin:auto">
-        <h1 style="font-family:Outfit,sans-serif">Welcome, {body.name}!</h1>
-        <p>Thanks for joining SavyCampusDeals — your student perks club.</p>
-        <p>Confirm your email to unlock exclusive offers:</p>
-        <p style="margin:24px 0"><a href="{link}" style="background:#4F46E5;padding:14px 28px;border-radius:999px;color:#fff;text-decoration:none;font-weight:700">Verify Email</a></p>
-        <p style="color:#71717A;font-size:12px">If the button doesn't work, paste this in your browser: {link}</p>
+        "Your SavyCampusDeals verification code",
+        f"""<div style="font-family:Manrope,Arial,sans-serif;background:#050505;color:#fff;padding:32px;border-radius:16px;max-width:520px;margin:auto">
+        <h1 style="font-family:Outfit,sans-serif;font-weight:800">Welcome, {body.name}!</h1>
+        <p style="color:#a1a1aa">Enter this 6-digit code on the site to verify your email — expires in 10 minutes.</p>
+        <div style="margin:24px 0;padding:20px;background:rgba(79,70,229,0.15);border:1px solid rgba(79,70,229,0.4);border-radius:16px;text-align:center">
+          <div style="font-family:'JetBrains Mono',monospace;font-size:40px;letter-spacing:12px;font-weight:800;color:#a5b4fc">{otp}</div>
+        </div>
+        <p style="color:#71717A;font-size:12px">If you didn't create an account, ignore this email.</p>
         </div>""",
     )
 
     token = create_access_token(str(result.inserted_id), email, "student")
     set_auth_cookie(response, token)
     return {"user": serialize_user(user_doc), "token": token}
+
+
+@api.post("/auth/send-otp")
+async def send_otp(body: OtpResendIn):
+    email = body.email.lower().strip()
+    user = await db.users.find_one({"email": email})
+    if not user:
+        raise HTTPException(404, "No account with that email")
+    if user.get("email_verified"):
+        return {"ok": True, "already_verified": True}
+    # Throttle: reject if latest OTP < 60 s old
+    latest = await db.otp_codes.find_one({"user_id": user["_id"]}, sort=[("created_at", -1)])
+    now = datetime.now(timezone.utc)
+    if latest and (now - _aware(latest["created_at"])).total_seconds() < 60:
+        raise HTTPException(429, "Please wait a minute before requesting a new code")
+    otp = f"{secrets.randbelow(1000000):06d}"
+    await db.otp_codes.insert_one({
+        "user_id": user["_id"],
+        "email": email,
+        "otp": otp,
+        "expires_at": now + timedelta(minutes=10),
+        "used": False,
+        "created_at": now,
+    })
+    send_email(
+        email,
+        "Your SavyCampusDeals verification code",
+        f"""<div style="font-family:Manrope,Arial,sans-serif;background:#050505;color:#fff;padding:32px;border-radius:16px;max-width:520px;margin:auto">
+        <p>Your new verification code:</p>
+        <div style="margin:16px 0;padding:20px;background:rgba(79,70,229,0.15);border:1px solid rgba(79,70,229,0.4);border-radius:16px;text-align:center">
+          <div style="font-family:monospace;font-size:40px;letter-spacing:12px;font-weight:800;color:#a5b4fc">{otp}</div>
+        </div>
+        <p style="color:#71717A;font-size:12px">Expires in 10 minutes.</p>
+        </div>""",
+    )
+    return {"ok": True}
+
+
+@api.post("/auth/verify-otp")
+async def verify_otp(body: OtpVerifyIn):
+    email = body.email.lower().strip()
+    user = await db.users.find_one({"email": email})
+    if not user:
+        raise HTTPException(404, "No account with that email")
+    if user.get("email_verified"):
+        return {"ok": True, "already_verified": True, "user": serialize_user(user)}
+    doc = await db.otp_codes.find_one(
+        {"user_id": user["_id"], "otp": body.otp, "used": False},
+        sort=[("created_at", -1)],
+    )
+    if not doc:
+        raise HTTPException(400, "Invalid code")
+    if _aware(doc["expires_at"]) < datetime.now(timezone.utc):
+        raise HTTPException(400, "Code has expired. Request a new one.")
+    await db.otp_codes.update_one({"_id": doc["_id"]}, {"$set": {"used": True}})
+    await db.users.update_one({"_id": user["_id"]}, {"$set": {"email_verified": True}})
+    fresh = await db.users.find_one({"_id": user["_id"]})
+    return {"ok": True, "user": serialize_user(fresh)}
 
 
 @api.post("/auth/login")
@@ -354,7 +438,7 @@ async def update_profile(body: ProfileUpdateIn, user=Depends(get_current_user)):
 # Verification
 # -----------------------------
 @api.post("/verification/submit")
-async def submit_verification(body: VerificationSubmitIn, user=Depends(get_current_user)):
+async def submit_verification(body: VerificationSubmitIn, user=Depends(get_verified_user)):
     if user.get("verification_status") == "approved":
         raise HTTPException(400, "Already verified")
 
@@ -444,6 +528,7 @@ def serialize_offer(o: dict, saved_ids: set = None) -> dict:
         "title": o["title"],
         "brand": o["brand"],
         "brand_logo": o.get("brand_logo", ""),
+        "brand_url": o.get("brand_url", ""),
         "category": o["category"],
         "description": o["description"],
         "discount": o["discount"],
@@ -595,7 +680,7 @@ def serialize_coupon(c: dict, offer: dict = None) -> dict:
 
 
 @api.post("/offers/{offer_id}/claim")
-async def claim_offer(offer_id: str, user=Depends(get_current_user)):
+async def claim_offer(offer_id: str, user=Depends(get_verified_user)):
     if user.get("verification_status") != "approved":
         raise HTTPException(403, "Get verified to claim offers")
     try:
@@ -886,199 +971,213 @@ async def scan_redeem(body: ScanIn):
 
 
 # -----------------------------
-# Seed data
+# Seed data — REAL Indian student deals (July 2026)
 # -----------------------------
 SEED_OFFERS = [
     {
-        "title": "40% OFF on all Handcrafted Coffees",
-        "brand": "Blue Tokai",
-        "brand_logo": "https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=200",
-        "category": "Food & Drink",
-        "description": "Sip your way through exam week with 40% off every brew at Blue Tokai's flagship campus outlets.",
-        "discount": "40% OFF",
-        "image_url": "https://images.pexels.com/photos/34482998/pexels-photo-34482998.jpeg",
-        "terms": "Valid on all handcrafted beverages. Not valid with other offers. Show digital coupon at counter.",
-        "validity": "Valid till 31 Dec",
-        "featured": True,
-        "trending": True,
-        "location": "Pan India",
-        "claims_count": 1240,
-    },
-    {
-        "title": "Flat ₹500 OFF Kicks + Free Shipping",
-        "brand": "Nike",
-        "brand_logo": "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=200",
-        "category": "Fashion",
-        "description": "Fresh drops. Fresh discounts. Flat ₹500 off + free shipping on your first Nike purchase.",
-        "discount": "₹500 OFF",
-        "image_url": "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=1200",
-        "terms": "Min order ₹2999. One-time use per student.",
-        "validity": "Valid till 30 Nov",
-        "featured": True,
-        "trending": True,
-        "location": "Online + Stores",
-        "claims_count": 2340,
-    },
-    {
-        "title": "3 Months Premium — Free",
+        "title": "Premium Student — ₹59/month (50% OFF)",
         "brand": "Spotify",
-        "brand_logo": "https://images.unsplash.com/photo-1614680376573-df3480f0c6ff?w=200",
+        "brand_logo": "https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg",
+        "brand_url": "https://www.spotify.com/in-en/student/",
         "category": "Entertainment",
-        "description": "Score three months of Spotify Premium on us. Ad-free tunes for every all-nighter.",
-        "discount": "3 MONTHS FREE",
-        "image_url": "https://images.unsplash.com/photo-1614680376573-df3480f0c6ff?w=1200",
-        "terms": "New users only. Auto-renews at ₹59/mo unless cancelled.",
-        "validity": "Ongoing",
-        "featured": True,
-        "trending": False,
-        "location": "Digital",
-        "claims_count": 5610,
-    },
-    {
-        "title": "50% OFF Annual Cult Elite",
-        "brand": "cult.fit",
-        "brand_logo": "https://images.unsplash.com/photo-1518611012118-696072aa579a?w=200",
-        "category": "Fitness",
-        "description": "Half-off annual gym + group workouts across 500+ centres. The glow up starts here.",
+        "description": "Ad-free tunes for every all-nighter. Unlimited skips, offline downloads, hi-fi audio. Verified via SheerID.",
         "discount": "50% OFF",
-        "image_url": "https://images.pexels.com/photos/3888405/pexels-photo-3888405.jpeg",
-        "terms": "Applicable on Elite annual plan only. Non-transferable.",
-        "validity": "Valid till 15 Dec",
-        "featured": False,
-        "trending": True,
-        "location": "Metro cities",
-        "claims_count": 890,
+        "image_url": "https://images.unsplash.com/photo-1614680376573-df3480f0c6ff?w=1200",
+        "terms": "New Premium users only. Verified through SheerID once every 12 months (max 4 years).",
+        "validity": "Ongoing",
+        "featured": True, "trending": True, "location": "Digital", "claims_count": 5610,
     },
     {
-        "title": "60% OFF Everything at Zudio",
-        "brand": "Zudio",
-        "brand_logo": "https://images.unsplash.com/photo-1483985988355-763728e1935b?w=200",
-        "category": "Fashion",
-        "description": "Refresh your fit for less. Flat 60% off on your first Zudio haul.",
-        "discount": "60% OFF",
-        "image_url": "https://images.unsplash.com/photo-1483985988355-763728e1935b?w=1200",
-        "terms": "In-store only. Valid at all Zudio outlets.",
-        "validity": "Valid till 20 Dec",
-        "featured": False,
-        "trending": True,
-        "location": "In-store",
-        "claims_count": 1450,
+        "title": "YouTube Premium Student — ₹79/month",
+        "brand": "YouTube",
+        "brand_logo": "https://upload.wikimedia.org/wikipedia/commons/0/09/YouTube_full-color_icon_%282017%29.svg",
+        "brand_url": "https://www.youtube.com/premium/student",
+        "category": "Entertainment",
+        "description": "Ad-free YouTube + YouTube Music Premium + offline downloads. Save ~40% vs the regular plan.",
+        "discount": "40% OFF",
+        "image_url": "https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=1200",
+        "terms": "SheerID verification required. Reverify every 12 months.",
+        "validity": "Ongoing",
+        "featured": True, "trending": True, "location": "Digital", "claims_count": 4110,
     },
     {
-        "title": "Free Notion Plus for Students",
+        "title": "Apple Music Student — ₹49/month",
+        "brand": "Apple Music",
+        "brand_logo": "https://upload.wikimedia.org/wikipedia/commons/2/2a/Apple_Music_icon.svg",
+        "brand_url": "https://music.apple.com/in/student",
+        "category": "Entertainment",
+        "description": "50% off Apple Music. Includes free Apple TV+ subscription. Verified via UNiDAYS.",
+        "discount": "50% OFF",
+        "image_url": "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=1200",
+        "terms": "Available up to 48 months while enrolled. UNiDAYS verification.",
+        "validity": "Ongoing",
+        "featured": False, "trending": True, "location": "Digital", "claims_count": 2140,
+    },
+    {
+        "title": "MacBook & iPad — Education Pricing",
+        "brand": "Apple",
+        "brand_logo": "https://upload.wikimedia.org/wikipedia/commons/f/fa/Apple_logo_black.svg",
+        "brand_url": "https://www.apple.com/in-edu/store",
+        "category": "Tech",
+        "description": "Up to ₹15,000 off MacBooks + ₹5,000 off iPads with free AirPods eligibility on select devices.",
+        "discount": "UP TO 10% OFF",
+        "image_url": "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=1200",
+        "terms": "Apple Education Store verifies with your college email or ID. One device per year.",
+        "validity": "Ongoing",
+        "featured": True, "trending": True, "location": "Online", "claims_count": 2780,
+    },
+    {
+        "title": "Notion for Students — FREE Plus Plan",
         "brand": "Notion",
-        "brand_logo": "https://images.unsplash.com/photo-1611175694989-4870fafa4494?w=200",
+        "brand_logo": "https://upload.wikimedia.org/wikipedia/commons/4/45/Notion_app_logo.png",
+        "brand_url": "https://www.notion.so/students",
         "category": "Education",
-        "description": "Level up productivity with Notion Plus free for verified students. AI-powered notes included.",
+        "description": "Unlimited pages, AI-assist add-on eligible, unlimited uploads. Free while you're a student.",
         "discount": "100% FREE",
         "image_url": "https://images.unsplash.com/photo-1611175694989-4870fafa4494?w=1200",
-        "terms": "Valid while enrolled. Requires student email.",
-        "validity": "Yearly renewal",
-        "featured": True,
-        "trending": False,
-        "location": "Digital",
-        "claims_count": 3220,
+        "terms": "Verify with college email through Notion Students page. Reverify annually.",
+        "validity": "Ongoing",
+        "featured": True, "trending": False, "location": "Digital", "claims_count": 3220,
     },
     {
-        "title": "25% OFF MacBook Air M3",
-        "brand": "Apple",
-        "brand_logo": "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=200",
+        "title": "GitHub Student Developer Pack — FREE",
+        "brand": "GitHub",
+        "brand_logo": "https://upload.wikimedia.org/wikipedia/commons/9/91/Octicons-mark-github.svg",
+        "brand_url": "https://education.github.com/pack",
         "category": "Tech",
-        "description": "Education pricing on the new MacBook Air M3. Because your work deserves silicon.",
-        "discount": "25% OFF",
-        "image_url": "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=1200",
-        "terms": "Valid via Apple Education store. One device per student per year.",
+        "description": "GitHub Pro + $200 DigitalOcean credit + free domains (.me/.tech) + JetBrains IDEs + Copilot access.",
+        "discount": "100% FREE",
+        "image_url": "https://images.unsplash.com/photo-1618401471353-b98afee0b2eb?w=1200",
+        "terms": "Requires a valid student email or ID scan. Renews as long as you're enrolled.",
         "validity": "Ongoing",
-        "featured": True,
-        "trending": True,
-        "location": "Online",
-        "claims_count": 2780,
+        "featured": True, "trending": True, "location": "Digital", "claims_count": 6410,
     },
     {
-        "title": "Buy 1 Get 1 Free on Movies",
-        "brand": "BookMyShow",
-        "brand_logo": "https://images.unsplash.com/photo-1489599809927-48b3b1c6f61f?w=200",
-        "category": "Entertainment",
-        "description": "Weekend vibes: BOGO tickets across PVR, INOX and Cinepolis via BookMyShow.",
-        "discount": "BUY 1 GET 1",
-        "image_url": "https://images.unsplash.com/photo-1489599809927-48b3b1c6f61f?w=1200",
-        "terms": "Applicable Mon–Thu shows. Max 2 tickets per booking.",
-        "validity": "Valid till 31 Jan",
-        "featured": False,
-        "trending": False,
-        "location": "Pan India",
-        "claims_count": 640,
-    },
-    {
-        "title": "70% OFF Coding Bootcamps",
-        "brand": "Coursera",
-        "brand_logo": "https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=200",
-        "category": "Education",
-        "description": "Ship your first startup. Take any Coursera Plus specialization at 70% off.",
-        "discount": "70% OFF",
-        "image_url": "https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=1200",
-        "terms": "Applicable on annual Coursera Plus only.",
+        "title": "Creative Cloud All Apps — Flat 65% OFF",
+        "brand": "Adobe",
+        "brand_logo": "https://upload.wikimedia.org/wikipedia/commons/7/7b/Adobe_Systems_logo_and_wordmark.svg",
+        "brand_url": "https://www.adobe.com/in/creativecloud/buy/students.html",
+        "category": "Tech",
+        "description": "Photoshop, Illustrator, Premiere Pro, After Effects & 20+ apps. Save up to ₹40,000/yr.",
+        "discount": "65% OFF",
+        "image_url": "https://images.unsplash.com/photo-1611162616475-46b635cb6868?w=1200",
+        "terms": "First-year rate ₹1,675/mo, then ₹2,720/mo. SheerID verification.",
         "validity": "Ongoing",
-        "featured": False,
-        "trending": True,
-        "location": "Digital",
-        "claims_count": 1980,
+        "featured": True, "trending": True, "location": "Digital", "claims_count": 1980,
     },
     {
-        "title": "Free 1-Year YouTube Premium",
-        "brand": "YouTube",
-        "brand_logo": "https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=200",
+        "title": "Figma Education — FREE Professional",
+        "brand": "Figma",
+        "brand_logo": "https://upload.wikimedia.org/wikipedia/commons/3/33/Figma-logo.svg",
+        "brand_url": "https://www.figma.com/education/",
+        "category": "Tech",
+        "description": "Unlimited files, dev mode, plugins & libraries. Same features as the paid Pro plan.",
+        "discount": "100% FREE",
+        "image_url": "https://images.unsplash.com/photo-1613909207039-6b173b755cc1?w=1200",
+        "terms": "Verify via Figma Education form. Renewable annually.",
+        "validity": "Ongoing",
+        "featured": False, "trending": True, "location": "Digital", "claims_count": 1130,
+    },
+    {
+        "title": "Canva for Campus — FREE Pro",
+        "brand": "Canva",
+        "brand_logo": "https://upload.wikimedia.org/wikipedia/commons/0/08/Canva_icon_2021.svg",
+        "brand_url": "https://www.canva.com/education/",
+        "category": "Tech",
+        "description": "Free Pro for students at partner colleges. 100k+ templates, AI Magic Write, brand kits.",
+        "discount": "100% FREE",
+        "image_url": "https://images.unsplash.com/photo-1626785774573-4b799315345d?w=1200",
+        "terms": "Available only if your college is a Canva for Campus partner. Free otherwise via edu email.",
+        "validity": "Ongoing",
+        "featured": False, "trending": True, "location": "Digital", "claims_count": 2410,
+    },
+    {
+        "title": "Prime Student — ₹49/month or ₹399/year",
+        "brand": "Amazon Prime",
+        "brand_logo": "https://upload.wikimedia.org/wikipedia/commons/1/11/Amazon_2024.svg",
+        "brand_url": "https://www.amazon.in/amazonprime",
         "category": "Entertainment",
-        "description": "One full year of ad-free YouTube + Music Premium. Study soundtracks on repeat.",
-        "discount": "1 YEAR FREE",
-        "image_url": "https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=1200",
-        "terms": "New Premium members only.",
-        "validity": "Limited-time",
-        "featured": False,
-        "trending": False,
-        "location": "Digital",
-        "claims_count": 4110,
+        "description": "6-month free trial + fast delivery + Prime Video + Kindle Prime Reading. 50% off vs standard.",
+        "discount": "50% OFF",
+        "image_url": "https://images.unsplash.com/photo-1620913166829-19b4c0d5715f?w=1200",
+        "terms": "SheerID student verification. Renew annually.",
+        "validity": "Ongoing",
+        "featured": False, "trending": True, "location": "Pan India", "claims_count": 3760,
     },
     {
-        "title": "30% OFF Zomato Gold",
-        "brand": "Zomato",
-        "brand_logo": "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=200",
+        "title": "Swiggy One Lite Student — ₹1 for 3 months",
+        "brand": "Swiggy",
+        "brand_logo": "https://upload.wikimedia.org/wikipedia/commons/1/12/Swiggy_logo.svg",
+        "brand_url": "https://www.swiggy.com/student",
         "category": "Food & Drink",
-        "description": "Unlock BOGO meals and free deliveries with Zomato Gold at 30% off for students.",
-        "discount": "30% OFF",
+        "description": "Free deliveries + flat ₹200 off on orders ₹699+ + 20% off Dineout bills. Save up to ₹1,800.",
+        "discount": "₹1 / 3 MONTHS",
         "image_url": "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=1200",
-        "terms": "Applicable on annual Gold membership.",
-        "validity": "Valid till 28 Feb",
-        "featured": False,
-        "trending": True,
-        "location": "Pan India",
-        "claims_count": 2650,
+        "terms": "18–25 yrs, students in 200+ cities. Verify college email or ID in Swiggy app → Student Rewards.",
+        "validity": "Live now",
+        "featured": True, "trending": True, "location": "Pan India", "claims_count": 8210,
     },
     {
-        "title": "Flat 45% OFF Ray-Ban Aviators",
-        "brand": "Ray-Ban",
-        "brand_logo": "https://images.unsplash.com/photo-1572635196237-14b3f281503f?w=200",
-        "category": "Fashion",
-        "description": "Icons never go out of style. Flat 45% off aviator classics for verified students.",
-        "discount": "45% OFF",
-        "image_url": "https://images.unsplash.com/photo-1572635196237-14b3f281503f?w=1200",
-        "terms": "Online only.",
-        "validity": "Valid till 31 Dec",
-        "featured": False,
-        "trending": False,
-        "location": "Online",
-        "claims_count": 520,
+        "title": "Zomato Gold Flash Sale — ₹1 / 3 Months",
+        "brand": "Zomato",
+        "brand_logo": "https://upload.wikimedia.org/wikipedia/commons/7/75/Zomato_logo.png",
+        "brand_url": "https://www.zomato.com/gold",
+        "category": "Food & Drink",
+        "description": "3 months of Gold: free delivery ₹199+, 1+1 dine-in, 30–50% off partner restaurants.",
+        "discount": "₹1 / 3 MONTHS",
+        "image_url": "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=1200",
+        "terms": "Limited-period flash sale in the Zomato app → Gold section.",
+        "validity": "Limited-time",
+        "featured": True, "trending": True, "location": "Pan India", "claims_count": 6520,
+    },
+    {
+        "title": "Coursera Plus — 50% OFF Annual",
+        "brand": "Coursera",
+        "brand_logo": "https://upload.wikimedia.org/wikipedia/commons/0/0f/Coursera_logo.svg",
+        "brand_url": "https://www.coursera.org/courseraplus",
+        "category": "Education",
+        "description": "Unlimited access to 7,000+ courses, Professional Certificates & Specializations. Great for portfolio building.",
+        "discount": "50% OFF",
+        "image_url": "https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=1200",
+        "terms": "Verify via UNiDAYS. Applies to annual plan only.",
+        "validity": "Ongoing",
+        "featured": False, "trending": False, "location": "Digital", "claims_count": 1560,
+    },
+    {
+        "title": "Microsoft 365 Education — FREE",
+        "brand": "Microsoft",
+        "brand_logo": "https://upload.wikimedia.org/wikipedia/commons/9/96/Microsoft_logo_%282012%29.svg",
+        "brand_url": "https://www.microsoft.com/en-in/education/products/office",
+        "category": "Education",
+        "description": "Word, Excel, PowerPoint, OneNote, Teams + 1 TB OneDrive — 100% free with a college email.",
+        "discount": "100% FREE",
+        "image_url": "https://images.unsplash.com/photo-1573167243872-43c6433b9d40?w=1200",
+        "terms": "Valid EDU email required. Renewed while enrolled.",
+        "validity": "Ongoing",
+        "featured": False, "trending": False, "location": "Digital", "claims_count": 2830,
     },
 ]
 
 
+SEED_VERSION = "v2-real-deals-2026"
+
+
 async def seed_offers():
-    if await db.offers.count_documents({}) > 0:
+    # Force re-seed when SEED_VERSION changes
+    meta = await db.seed_meta.find_one({"key": "offers"})
+    if meta and meta.get("version") == SEED_VERSION:
         return
+    # Delete non-outlet offers (brand deals) and their coupons
+    old_ids = [o["_id"] async for o in db.offers.find({"outlet_id": None}, {"_id": 1})]
+    if old_ids:
+        await db.coupons.delete_many({"offer_id": {"$in": old_ids}})
+        await db.saved_offers.delete_many({"offer_id": {"$in": old_ids}})
+        await db.offers.delete_many({"_id": {"$in": old_ids}})
     now = datetime.now(timezone.utc)
     docs = [{**o, "created_at": now, "outlet_id": None} for o in SEED_OFFERS]
     await db.offers.insert_many(docs)
-    logger.info(f"Seeded {len(docs)} offers")
+    await db.seed_meta.update_one({"key": "offers"}, {"$set": {"version": SEED_VERSION, "updated_at": now}}, upsert=True)
+    logger.info(f"Seeded {len(docs)} REAL brand offers ({SEED_VERSION})")
 
 
 SEED_OUTLETS = [

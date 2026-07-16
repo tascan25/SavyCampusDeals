@@ -70,7 +70,6 @@ export default function Verify() {
 
   const onSubmit = async (e) => {
     e.preventDefault();
-    if (!f.college_id_image || !f.selfie_image) { setErr("Please upload both images"); return; }
     setErr("");
     setLoading(true);
     try {
@@ -93,16 +92,19 @@ export default function Verify() {
             <ShieldCheck size={12}/> Student verification
           </div>
           <h1 className="font-display text-4xl md:text-5xl font-extrabold tracking-tighter">Prove you're a student</h1>
-          <p className="text-zinc-400 mt-3 max-w-xl">Upload your college ID and a selfie. We keep everything encrypted and delete once verified.</p>
+          <p className="text-zinc-400 mt-3 max-w-xl">Fill in your college details below. Uploading your ID + selfie is <span className="text-emerald-300 font-semibold">optional</span> for now — we keep everything encrypted and only use it if manual review is needed.</p>
         </motion.div>
 
         <form onSubmit={onSubmit} className="mt-10 glass-heavy rounded-3xl p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <ImageUpload label="Upload College ID" value={f.college_id_image} onChange={(v) => update("college_id_image", v)} testId="verify-collegeid-input"/>
-          <ImageUpload label="Upload Selfie" value={f.selfie_image} onChange={(v) => update("selfie_image", v)} testId="verify-selfie-input"/>
+          <div className="md:col-span-2 rounded-2xl bg-emerald-500/10 border border-emerald-400/30 p-4 text-sm text-emerald-100">
+            <span className="font-semibold">Optional:</span> Upload photos below only if you want faster manual verification. Otherwise, submit with just your details.
+          </div>
+          <ImageUpload label="College ID (optional)" value={f.college_id_image} onChange={(v) => update("college_id_image", v)} testId="verify-collegeid-input"/>
+          <ImageUpload label="Selfie (optional)" value={f.selfie_image} onChange={(v) => update("selfie_image", v)} testId="verify-selfie-input"/>
 
           {[
             { k: "college_name", label: "College name", required: true },
-            { k: "student_id_number", label: "Student ID number", required: true },
+            { k: "student_id_number", label: "Student ID number (optional)", required: false },
             { k: "course", label: "Course (e.g. B.Tech CSE)", required: true },
             { k: "year", label: "Year (e.g. 3rd)", required: true },
           ].map((field) => (

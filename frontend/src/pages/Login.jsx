@@ -23,7 +23,12 @@ export default function Login() {
     setLoading(false);
     if (r.ok) {
       toast.success("Welcome back!");
-      nav(from, { replace: true });
+      // If email not verified, gate to OTP page
+      if (r.user && r.user.role === "student" && !r.user.email_verified) {
+        nav("/verify-email", { replace: true, state: { email: r.user.email } });
+      } else {
+        nav(from, { replace: true });
+      }
     } else {
       setErr(r.error);
     }

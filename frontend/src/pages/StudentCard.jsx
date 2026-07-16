@@ -1,8 +1,10 @@
-import React from "react";
+import React, { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
-import { ArrowRight, Download } from "lucide-react";
+import { ArrowRight, Download, Loader2 } from "lucide-react";
+import html2canvas from "html2canvas";
+import { toast } from "sonner";
 import Navbar from "@/components/Navbar";
 import DigitalStudentCard from "@/components/DigitalStudentCard";
 import api from "@/lib/api";
@@ -10,11 +12,41 @@ import { useAuth } from "@/context/AuthContext";
 
 export default function StudentCard() {
   const { user } = useAuth();
+  const cardRef = useRef(null);
+  const [downloading, setDownloading] = useState(false);
+
   const { data, isLoading } = useQuery({
     queryKey: ["student-card"],
     queryFn: async () => (await api.get("/student-card")).data,
     enabled: user?.verification_status === "approved",
   });
+
+  const download = async () => {
+    if (!cardRef.current) return;
+    setDownloading(true);
+    try {
+      const canvas = await html2canvas(cardRef.current, {
+        backgroundColor: null,
+        scale: 3,
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+      });
+      const url = canvas.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = url;
+      const safeName = (data?.name || "student").replace(/[^a-z0-9]/gi, "_");
+      a.download = `SavyPass_${safeName}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      toast.success("Card downloaded — save it to your gallery!");
+    } catch (e) {
+      toast.error("Couldn't download. Please try again.");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   if (user?.verification_status !== "approved") {
     return (
@@ -46,11 +78,25 @@ export default function StudentCard() {
           {isLoading ? (
             <div className="rounded-3xl w-full max-w-md mx-auto aspect-[1.586/1] bg-white/5 animate-pulse"/>
           ) : (
-            <DigitalStudentCard card={data}/>
+            <div ref={cardRef} className="w-full max-w-md mx-auto p-2">
+              <DigitalStudentCard card={data}/>
+            </div>
           )}
         </div>
 
-        <div className="mt-10 grid sm:grid-cols-2 gap-3 max-w-md mx-auto">
+        <div className="mt-8 max-w-md mx-auto">
+          <button
+            data-testid="card-download-btn"
+            onClick={download}
+            disabled={downloading || isLoading}
+            className="w-full inline-flex items-center justify-center gap-2 rounded-full bg-white text-black font-semibold py-3 hover:scale-[1.02] active:scale-[0.98] transition-transform disabled:opacity-60"
+          >
+            {downloading ? <Loader2 size={16} className="animate-spin"/> : <><Download size={16}/> Download pass</>}
+          </button>
+          <p className="text-[11px] text-zinc-500 mt-2 text-center">Saves as a PNG. Add it to your phone's wallet or lock screen for one-tap access.</p>
+        </div>
+
+        <div className="mt-8 grid sm:grid-cols-2 gap-3 max-w-md mx-auto">
           <Link to="/coupons" data-testid="card-my-coupons" className="glass rounded-2xl p-5 flex items-center justify-between hover:border-white/20 transition-colors">
             <span className="font-display font-semibold">My coupons</span>
             <ArrowRight size={16} className="text-zinc-400"/>

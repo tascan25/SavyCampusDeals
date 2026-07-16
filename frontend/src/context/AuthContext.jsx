@@ -27,7 +27,7 @@ export function AuthProvider({ children }) {
       const { data } = await api.post("/auth/login", { email, password });
       if (data.token) localStorage.setItem("scd_token", data.token);
       setUser(data.user);
-      return { ok: true };
+      return { ok: true, user: data.user };
     } catch (e) {
       return { ok: false, error: formatApiError(e.response?.data?.detail) };
     }
@@ -38,7 +38,7 @@ export function AuthProvider({ children }) {
       const { data } = await api.post("/auth/register", payload);
       if (data.token) localStorage.setItem("scd_token", data.token);
       setUser(data.user);
-      return { ok: true };
+      return { ok: true, user: data.user };
     } catch (e) {
       return { ok: false, error: formatApiError(e.response?.data?.detail) };
     }

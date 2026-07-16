@@ -21,8 +21,8 @@ export default function Signup() {
     const r = await register(f);
     setLoading(false);
     if (r.ok) {
-      toast.success("Account created! Now let's verify you.");
-      nav("/verify");
+      toast.success("Account created! Check your inbox for a verification code.");
+      nav("/verify-email", { state: { email: f.email } });
     } else setErr(r.error);
   };
 

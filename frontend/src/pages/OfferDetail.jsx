@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ArrowLeft, Bookmark, MapPin, ShieldCheck, Ticket, Loader2, Sparkles } from "lucide-react";
+import { ArrowLeft, Bookmark, MapPin, ShieldCheck, Ticket, Loader2, Sparkles, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import Navbar from "@/components/Navbar";
 import api, { formatApiError } from "@/lib/api";
@@ -24,8 +24,16 @@ export default function OfferDetail() {
     setClaiming(true);
     try {
       const { data } = await api.post(`/offers/${id}/claim`);
-      toast.success("Coupon ready!");
-      nav(`/coupons`, { state: { justClaimed: data.id } });
+      // Brand offers (no outlet_id) → open the brand's site.
+      // Outlet offers → send to My Coupons for in-store QR redemption.
+      if (offer.brand_url && !offer.outlet_id) {
+        toast.success("Coupon saved to your account. Opening brand site…");
+        window.open(offer.brand_url, "_blank", "noopener,noreferrer");
+        nav("/coupons");
+      } else {
+        toast.success("Coupon ready!");
+        nav("/coupons", { state: { justClaimed: data.id } });
+      }
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail));
     } finally { setClaiming(false); }
@@ -116,8 +124,19 @@ export default function OfferDetail() {
                 disabled={claiming || (user && !canClaim)}
                 className="mt-5 w-full inline-flex items-center justify-center gap-2 rounded-full bg-white text-black font-semibold py-3 hover:scale-[1.02] transition-transform disabled:opacity-60"
               >
-                {claiming ? <Loader2 size={16} className="animate-spin"/> : <><Ticket size={16}/> {user ? "Claim coupon" : "Log in to claim"}</>}
+                {claiming ? <Loader2 size={16} className="animate-spin"/> :
+                  offer.brand_url && !offer.outlet_id ? (
+                    <><ExternalLink size={16}/> {user ? "Claim & continue to brand" : "Log in to claim"}</>
+                  ) : (
+                    <><Ticket size={16}/> {user ? "Claim coupon" : "Log in to claim"}</>
+                  )
+                }
               </button>
+              {offer.brand_url && !offer.outlet_id && user && canClaim && (
+                <div className="mt-2 text-[11px] text-zinc-500 text-center">
+                  You'll be redirected to <span className="text-white">{new URL(offer.brand_url).hostname}</span> to activate.
+                </div>
+              )}
               <button
                 data-testid="offer-save-detail-btn"
                 onClick={toggleSave}
