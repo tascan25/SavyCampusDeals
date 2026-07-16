@@ -143,18 +143,22 @@ def _aware(dt):
     return dt
 
 
-def send_email(to: str, subject: str, html: str) -> bool:
+DEV_OTP_FALLBACK = os.environ.get("DEV_OTP_FALLBACK", "true").lower() == "true"
+
+
+def send_email(to: str, subject: str, html: str) -> dict:
+    """Returns {ok: bool, error: str|None}."""
     if not RESEND_API_KEY:
-        logger.warning(f"[Email skipped: no key] To={to} Subject={subject}")
-        return False
+        logger.warning(f"[Email skipped: no key] To={to}")
+        return {"ok": False, "error": "no_api_key"}
     try:
         resend.Emails.send(
             {"from": f"SavyCampusDeals <{FROM_EMAIL}>", "to": [to], "subject": subject, "html": html}
         )
-        return True
+        return {"ok": True, "error": None}
     except Exception as e:
         logger.error(f"Resend error: {e}")
-        return False
+        return {"ok": False, "error": str(e)}
 
 
 def generate_qr_data_uri(payload: str) -> str:
@@ -276,7 +280,7 @@ async def register(body: RegisterIn, response: Response):
         "used": False,
         "created_at": now,
     })
-    send_email(
+    email_result = send_email(
         email,
         "Your SavyCampusDeals verification code",
         f"""<div style="font-family:Manrope,Arial,sans-serif;background:#050505;color:#fff;padding:32px;border-radius:16px;max-width:520px;margin:auto">
@@ -288,10 +292,15 @@ async def register(body: RegisterIn, response: Response):
         <p style="color:#71717A;font-size:12px">If you didn't create an account, ignore this email.</p>
         </div>""",
     )
+    logger.info(f"OTP for {email}: {otp} (email delivery: {email_result['ok']})")
 
     token = create_access_token(str(result.inserted_id), email, "student")
     set_auth_cookie(response, token)
-    return {"user": serialize_user(user_doc), "token": token}
+    resp = {"user": serialize_user(user_doc), "token": token, "email_sent": email_result["ok"]}
+    if DEV_OTP_FALLBACK and not email_result["ok"]:
+        resp["dev_otp"] = otp
+        resp["email_error"] = email_result["error"]
+    return resp
 
 
 @api.post("/auth/send-otp")
@@ -316,7 +325,7 @@ async def send_otp(body: OtpResendIn):
         "used": False,
         "created_at": now,
     })
-    send_email(
+    email_result = send_email(
         email,
         "Your SavyCampusDeals verification code",
         f"""<div style="font-family:Manrope,Arial,sans-serif;background:#050505;color:#fff;padding:32px;border-radius:16px;max-width:520px;margin:auto">
@@ -327,7 +336,12 @@ async def send_otp(body: OtpResendIn):
         <p style="color:#71717A;font-size:12px">Expires in 10 minutes.</p>
         </div>""",
     )
-    return {"ok": True}
+    logger.info(f"OTP resend for {email}: {otp} (email delivery: {email_result['ok']})")
+    resp = {"ok": True, "email_sent": email_result["ok"]}
+    if DEV_OTP_FALLBACK and not email_result["ok"]:
+        resp["dev_otp"] = otp
+        resp["email_error"] = email_result["error"]
+    return resp
 
 
 @api.post("/auth/verify-otp")

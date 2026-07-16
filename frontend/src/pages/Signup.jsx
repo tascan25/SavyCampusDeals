@@ -22,7 +22,7 @@ export default function Signup() {
     setLoading(false);
     if (r.ok) {
       toast.success("Account created! Check your inbox for a verification code.");
-      nav("/verify-email", { state: { email: f.email } });
+      nav("/verify-email", { state: { email: f.email, dev_otp: r.dev_otp, email_sent: r.email_sent } });
     } else setErr(r.error);
   };
 

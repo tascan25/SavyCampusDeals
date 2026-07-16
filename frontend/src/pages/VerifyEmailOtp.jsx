@@ -11,7 +11,13 @@ export default function VerifyEmailOtp() {
   const loc = useLocation();
   const nav = useNavigate();
   const email = user?.email || loc.state?.email || "";
-  const [digits, setDigits] = useState(["", "", "", "", "", ""]);
+  const initialOtp = loc.state?.dev_otp || "";
+  const emailSent = loc.state?.email_sent;
+  const [digits, setDigits] = useState(
+    initialOtp && /^\d{6}$/.test(initialOtp) ? initialOtp.split("") : ["", "", "", "", "", ""]
+  );
+  const [devOtp, setDevOtp] = useState(initialOtp || "");
+  const [devDelivery, setDevDelivery] = useState(emailSent === false);
   const [loading, setLoading] = useState(false);
   const [resendIn, setResendIn] = useState(0);
   const [err, setErr] = useState("");
@@ -76,11 +82,20 @@ export default function VerifyEmailOtp() {
   const resend = async () => {
     setErr("");
     try {
-      await api.post("/auth/send-otp", { email });
-      toast.success("New code sent");
+      const { data } = await api.post("/auth/send-otp", { email });
+      if (data.dev_otp) {
+        setDevOtp(data.dev_otp);
+        setDevDelivery(true);
+        setDigits(data.dev_otp.split(""));
+        toast.warning("Email delivery unavailable — using dev code");
+      } else {
+        setDevDelivery(false);
+        setDevOtp("");
+        toast.success("New code sent to your inbox");
+        setDigits(["", "", "", "", "", ""]);
+        inputRefs.current[0]?.focus();
+      }
       setResendIn(60);
-      setDigits(["", "", "", "", "", ""]);
-      inputRefs.current[0]?.focus();
     } catch (e) {
       const msg = formatApiError(e.response?.data?.detail);
       setErr(msg);
@@ -112,6 +127,20 @@ export default function VerifyEmailOtp() {
         <p className="text-zinc-400 text-sm mt-2">
           We sent a code to <span className="text-white font-semibold">{email}</span>. It expires in 10 minutes.
         </p>
+
+        {devDelivery && devOtp && (
+          <div className="mt-5 rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4" data-testid="otp-dev-banner">
+            <div className="text-[10px] uppercase tracking-widest text-amber-300 font-semibold">Email delivery unavailable — dev mode</div>
+            <p className="text-xs text-amber-100/80 mt-1">
+              Your Resend account can only email its verified address. We've pre-filled your code below so you can continue.
+              To enable real inbox delivery, verify a domain at <a className="underline" href="https://resend.com/domains" target="_blank" rel="noreferrer">resend.com/domains</a>.
+            </p>
+            <div className="mt-3 rounded-lg bg-black/40 border border-amber-400/30 p-3 flex items-center justify-between">
+              <span className="text-[10px] uppercase tracking-widest text-amber-300">Your code</span>
+              <span className="font-mono font-bold text-2xl text-amber-100 tracking-[0.35em]" data-testid="otp-dev-code">{devOtp}</span>
+            </div>
+          </div>
+        )}
 
         <div className="mt-8 flex justify-between gap-2" onPaste={onPaste} data-testid="otp-inputs">
           {digits.map((d, i) => (

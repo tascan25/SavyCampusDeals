@@ -38,7 +38,7 @@ export function AuthProvider({ children }) {
       const { data } = await api.post("/auth/register", payload);
       if (data.token) localStorage.setItem("scd_token", data.token);
       setUser(data.user);
-      return { ok: true, user: data.user };
+      return { ok: true, user: data.user, dev_otp: data.dev_otp, email_sent: data.email_sent };
     } catch (e) {
       return { ok: false, error: formatApiError(e.response?.data?.detail) };
     }
