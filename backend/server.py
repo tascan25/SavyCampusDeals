@@ -568,7 +568,8 @@ async def verification_status(user=Depends(get_current_user)):
 async def student_card(user=Depends(get_current_user)):
     if user.get("verification_status") != "approved":
         raise HTTPException(403, "You must be verified to access your student card")
-    payload = f"SCD|{user.get('student_number','')}|{str(user['_id'])}|{user.get('email','')}"
+    # Encode as URL so any phone camera scanning the QR opens our /scan page directly.
+    payload = f"{FRONTEND_URL}/scan?s={user.get('student_number','')}"
     qr = generate_qr_data_uri(payload)
     return {
         "name": user.get("name", ""),
@@ -783,7 +784,8 @@ async def claim_offer(offer_id: str, user=Depends(get_verified_user)):
     code = f"SCD-{secrets.token_hex(4).upper()}"
     now = datetime.now(timezone.utc)
     expires = now + timedelta(days=30)
-    payload = f"COUPON|{code}|{str(user['_id'])}|{offer_id}"
+    # Encode as a URL so any phone camera opens the /scan page directly.
+    payload = f"{FRONTEND_URL}/scan?c={code}"
     qr = generate_qr_data_uri(payload)
     doc = {
         "user_id": user["_id"],
@@ -918,14 +920,31 @@ class ScanIn(BaseModel):
 
 def _parse_qr_payload(raw: str) -> dict:
     """Parse QR string. Supports:
-       SCD|student_number|user_id|email  (student card)
-       COUPON|code|user_id|offer_id      (coupon)
-       raw coupon code like SCD-XXXXXXXX
-       raw student number like SCD-2026-XXXXXX
+       - URL formats: https://.../scan?c=CODE  or  ?s=STUDENT_NUM  or  ?p=RAW
+       - SCD|student_number|user_id|email  (student card, legacy)
+       - COUPON|code|user_id|offer_id      (coupon, legacy)
+       - raw coupon code like SCD-XXXXXXXX
+       - raw student number like SCD-2026-XXXXXX
     """
     raw = (raw or "").strip()
     if not raw:
         return {"kind": "unknown"}
+
+    # URL formats produced by QR generation
+    if raw.startswith("http://") or raw.startswith("https://"):
+        try:
+            from urllib.parse import urlparse, parse_qs
+            u = urlparse(raw)
+            qs = parse_qs(u.query)
+            if "c" in qs:
+                raw = qs["c"][0].strip()
+            elif "s" in qs:
+                raw = qs["s"][0].strip()
+            elif "p" in qs:
+                raw = qs["p"][0].strip()
+        except Exception:
+            pass
+
     parts = raw.split("|")
     if len(parts) >= 4 and parts[0] == "SCD":
         return {"kind": "student", "student_number": parts[1], "user_id": parts[2], "email": parts[3]}
@@ -1430,6 +1449,24 @@ async def on_startup():
     await seed_admin()
     await seed_offers()
     await seed_outlets()
+    # Migrate existing coupons + student QRs from pipe-payload to URL format,
+    # so that any phone camera scanning them opens our /scan page directly.
+    try:
+        old_cursor = db.coupons.find({"status": "active"})
+        migrated = 0
+        async for c in old_cursor:
+            # Regenerate to the URL format if it doesn't already look like a URL
+            existing = c.get("qr_data_uri", "")
+            # Cheap heuristic: rebuild all active coupon QRs to the new URL format.
+            payload = f"{FRONTEND_URL}/scan?c={c['code']}"
+            new_qr = generate_qr_data_uri(payload)
+            if new_qr != existing:
+                await db.coupons.update_one({"_id": c["_id"]}, {"$set": {"qr_data_uri": new_qr}})
+                migrated += 1
+        if migrated:
+            logger.info(f"Migrated {migrated} active coupon QRs to URL format")
+    except Exception as e:
+        logger.warning(f"QR migration warn: {e}")
 
 
 @api.get("/health")

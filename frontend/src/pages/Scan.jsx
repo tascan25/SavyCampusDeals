@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Html5Qrcode } from "html5-qrcode";
 import { QrCode, ScanLine, BadgeCheck, ShieldAlert, Ticket, CheckCircle2, X, Camera, Keyboard, Loader2 } from "lucide-react";
@@ -135,7 +135,14 @@ function ResultCard({ result, onRedeem, onClose, redeeming }) {
 }
 
 export default function Scan() {
-  const [mode, setMode] = useState("camera"); // camera | manual
+  const location = useLocation();
+  const urlParams = new URLSearchParams(location.search);
+  const urlCode = urlParams.get("c");         // coupon code
+  const urlStudent = urlParams.get("s");      // student number
+  const urlPayload = urlParams.get("p");      // raw payload (legacy)
+  const cameFromQrScan = Boolean(urlCode || urlStudent || urlPayload);
+
+  const [mode, setMode] = useState(cameFromQrScan ? "manual" : "camera");
   const [manual, setManual] = useState("");
   const [result, setResult] = useState(null);
   const [scanning, setScanning] = useState(false);
@@ -144,6 +151,7 @@ export default function Scan() {
   const scannerRef = useRef(null);
   const readerId = "qr-reader-region";
   const activeRef = useRef(false);
+  const autoLookupRef = useRef(false);
 
   const lookup = async (payload) => {
     setErr("");
@@ -158,6 +166,17 @@ export default function Scan() {
       toast.error(msg);
     }
   };
+
+  // Auto-lookup when the user lands here from a QR-code URL scanned by their phone camera.
+  useEffect(() => {
+    if (autoLookupRef.current) return;
+    const value = urlCode || urlStudent || urlPayload;
+    if (value) {
+      autoLookupRef.current = true;
+      lookup(value);
+    }
+    // eslint-disable-next-line
+  }, []);
 
   const startScan = async () => {
     if (activeRef.current) return;
